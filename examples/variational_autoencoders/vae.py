@@ -18,10 +18,10 @@ from examples.utils import dataset, save_image_collections
 
 
 @zs.reuse('model')
-def vae(observed, n, x_dim, z_dim, n_particles):
+def vae(observed, x_dim, z_dim, n_x, n_z_per_x):
     with zs.BayesianNet(observed=observed) as model:
-        z_mean = tf.zeros([n, z_dim])
-        z = zs.Normal('z', z_mean, std=1., group_ndims=1, n_samples=n_particles)
+        z_mean = tf.zeros([n_x, z_dim])
+        z = zs.Normal('z', z_mean, std=1., group_ndims=1, n_samples=n_z_per_x)
         lx_z = layers.fully_connected(z, 500)
         lx_z = layers.fully_connected(lx_z, 500)
         x_logits = layers.fully_connected(lx_z, x_dim, activation_fn=None)
@@ -29,14 +29,16 @@ def vae(observed, n, x_dim, z_dim, n_particles):
     return model, x_logits
 
 
-def q_net(x, z_dim, n_particles):
-    with zs.BayesianNet() as variational:
+@zs.reuse('variational')
+def q_net(observed, x_dim, z_dim, n_x, n_z_per_x):
+    with zs.BayesianNet(observed=observed) as variational:
+        x = zs.Empirical('x', (n_x, x_dim), dtype=tf.int32)
         lz_x = layers.fully_connected(tf.to_float(x), 500)
         lz_x = layers.fully_connected(lz_x, 500)
         z_mean = layers.fully_connected(lz_x, z_dim, activation_fn=None)
         z_logstd = layers.fully_connected(lz_x, z_dim, activation_fn=None)
         z = zs.Normal('z', z_mean, logstd=z_logstd, group_ndims=1,
-                      n_samples=n_particles)
+                      n_samples=n_z_per_x)
     return variational
 
 
@@ -57,17 +59,18 @@ def main():
     x_input = tf.placeholder(tf.float32, shape=[None, x_dim], name='x')
     x = tf.to_int32(tf.less(tf.random_uniform(tf.shape(x_input)), x_input))
     n = tf.shape(x)[0]
+    obs = {'x': x}
 
     def log_joint(observed):
-        model, _ = vae(observed, n, x_dim, z_dim, n_particles)
+        model, _ = vae(observed, x_dim, z_dim,  n, n_particles)
         log_pz, log_px_z = model.local_log_prob(['z', 'x'])
         return log_pz + log_px_z
 
-    variational = q_net(x, z_dim, n_particles)
+    variational = q_net(obs, x_dim, z_dim,  n, n_particles)
     qz_samples, log_qz = variational.query('z', outputs=True,
                                            local_log_prob=True)
     lower_bound = zs.variational.elbo(log_joint,
-                                      observed={'x': x},
+                                      observed=obs,
                                       latent={'z': [qz_samples, log_qz]},
                                       axis=0)
     cost = tf.reduce_mean(lower_bound.sgvb())
@@ -75,7 +78,7 @@ def main():
 
     # Importance sampling estimates of marginal log likelihood
     is_log_likelihood = tf.reduce_mean(
-        zs.is_loglikelihood(log_joint, {'x': x},
+        zs.is_loglikelihood(log_joint, obs,
                             {'z': [qz_samples, log_qz]}, axis=0))
 
     optimizer = tf.train.AdamOptimizer(0.001)
@@ -83,7 +86,7 @@ def main():
 
     # Generate images
     n_gen = 100
-    _, x_logits = vae({}, n_gen, x_dim, z_dim, 1)
+    _, x_logits = vae({}, x_dim, z_dim, n_gen, 1)
     x_gen = tf.reshape(tf.sigmoid(x_logits), [-1, 28, 28, 1])
 
     # Define training/evaluation parameters
