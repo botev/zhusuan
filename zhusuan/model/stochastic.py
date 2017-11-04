@@ -30,6 +30,7 @@ __all__ = [
     'ExpConcrete',
     'Concrete',
     'Empirical',
+    'Delta'
 ]
 
 
@@ -831,7 +832,7 @@ class Empirical(StochasticTensor):
         together. Default is 0, which means a single value is an event.
         See :class:`~zhusuan.distributions.base.Distribution` for more detailed
         explanation.
-    :param is_continuous: Whether the distribution is continous or not.
+    :param is_continuous: Whether the distribution is continuous or not.
         If None will consider it continuous only if `dtype` is a float type.
     """
 
@@ -850,3 +851,36 @@ class Empirical(StochasticTensor):
             **kwargs
         )
         super(Empirical, self).__init__(name, norm, n_samples)
+
+
+class Delta(StochasticTensor):
+    """
+    The class of Delta `StochasticTensor`.
+    This distribution always sample the delta tensor provided.
+    See :class:`~zhusuan.model.base.Delta` for details.
+
+    :param name: A string. The name of the `StochasticTensor`. Must be unique
+        in the `BayesianNet` context.
+    :param delta: A N-D (N >= 1) `float` Tensor
+    :param group_ndims: A 0-D `int32` Tensor representing the number of
+        dimensions in `batch_shape` (counted from the end) that are grouped
+        into a single event, so that their probabilities are calculated
+        together. Default is 0, which means a single value is an event.
+        See :class:`~zhusuan.distributions.base.Distribution` for more detailed
+        explanation.
+    :param is_continuous: Whether the distribution is continuous or not.
+        If None will consider it continuous only if `dtype` is a float type.
+    """
+
+    def __init__(self,
+                 name,
+                 delta,
+                 group_ndims=0,
+                 n_samples=None,
+                 **kwargs):
+        norm = distributions.Delta(
+            delta,
+            group_ndims=group_ndims,
+            **kwargs
+        )
+        super(Delta, self).__init__(name, norm, n_samples)
