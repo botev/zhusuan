@@ -346,6 +346,19 @@ class BayesianNet(Context):
             ret = s_tensor.log_prob(s_tensor.tensor)
         return ret
 
+    def outputs_and_local_log_prob(self, name_or_names):
+        raise NotImplementedError
+        self._check_names_exist(name_or_names)
+        if isinstance(name_or_names, (tuple, list)):
+            ret = []
+            for name in name_or_names:
+                s_tensor = self._stochastic_tensors[name]
+                ret.append(s_tensor.log_prob(s_tensor.tensor))
+        else:
+            s_tensor = self._stochastic_tensors[name_or_names]
+            ret = s_tensor.log_prob(s_tensor.tensor)
+        return ret
+
     def query(self, name_or_names, outputs=False, local_log_prob=False):
         """
         Make probabilistic queries on the `BayesianNet`. Various options
@@ -367,11 +380,12 @@ class BayesianNet(Context):
         :return: Tuple of Tensors or a list of tuples of Tensors.
         """
         self._check_names_exist(name_or_names)
-        ret = []
-        if outputs:
-            ret.append(self.outputs(name_or_names))
+        if outputs and local_log_prob:
+            ret = self.outputs_and_local_log_prob(name_or_names)
+        elif outputs:
+            ret = self.outputs(name_or_names)
         if local_log_prob:
-            ret.append(self.local_log_prob(name_or_names))
+            ret = self.local_log_prob(name_or_names)
         if len(ret) == 0:
             raise ValueError("No query options are selected.")
         elif isinstance(name_or_names, (tuple, list)):
