@@ -14,6 +14,7 @@ from tensorflow.python.client.session import \
 
 from zhusuan.model.utils import Context
 from zhusuan.utils import TensorArithmeticMixin
+from zhusuan.distributions import Empirical
 
 
 __all__ = [
@@ -95,6 +96,40 @@ class StochasticTensor(TensorArithmeticMixin):
         return self._net
 
     @property
+    def tensor_and_local_log_prob(self):
+        """
+        Return corresponding Tensor and its local log-probability.
+        The Tensor is returned either through sampling, or if observed, return
+        the observed value.
+
+        :return: A Tensor of samples, A Tensor of local log-probabilities.
+        """
+        if not hasattr(self, '_tensor') or not hasattr(self, '_local_log_prob'):
+            if self._observed is not None:
+                self._tensor = self._observed
+                if isinstance(self._distribution, Empirical):
+                    self._local_log_prob = None
+                else:
+                    self._local_log_prob = self.log_prob(self._tensor)
+            elif self._name in self._net.observed:
+                try:
+                    self._tensor = tf.convert_to_tensor(
+                        self._net.observed[self._name], dtype=self._dtype)
+                    if isinstance(self._distribution, Empirical):
+                        self._local_log_prob = None
+                    else:
+                        self._local_log_prob = self.log_prob(self._tensor)
+                except ValueError as e:
+                    raise ValueError(
+                        "StochasticTensor('{}') not compatible "
+                        "with its observed value. Error message: {}".format(
+                            self._name, e))
+            else:
+                self._tensor, self._local_log_prob = self._distribution\
+                    .sample_and_log_prob(self._n_samples)
+        return self._tensor, self._local_log_prob
+
+    @property
     def tensor(self):
         """
         Return corresponding Tensor through sampling, or if observed, return
@@ -102,21 +137,16 @@ class StochasticTensor(TensorArithmeticMixin):
 
         :return: A Tensor.
         """
-        if not hasattr(self, '_tensor'):
-            if self._observed is not None:
-                self._tensor = self._observed
-            elif self._name in self._net.observed:
-                try:
-                    self._tensor = tf.convert_to_tensor(
-                        self._net.observed[self._name], dtype=self._dtype)
-                except ValueError as e:
-                    raise ValueError(
-                        "StochasticTensor('{}') not compatible "
-                        "with its observed value. Error message: {}".format(
-                            self._name, e))
-            else:
-                self._tensor = self.sample(self._n_samples)
-        return self._tensor
+        return self.tensor_and_local_log_prob[0]
+
+    @property
+    def local_log_prob(self):
+        """
+        Return corresponding Tensor of the local log-probabilities.
+
+        :return: A Tensor.
+        """
+        return self.tensor_and_local_log_prob[1]
 
     def get_shape(self):
         return self.tensor.get_shape()
@@ -340,23 +370,10 @@ class BayesianNet(Context):
             ret = []
             for name in name_or_names:
                 s_tensor = self._stochastic_tensors[name]
-                ret.append(s_tensor.log_prob(s_tensor.tensor))
+                ret.append(s_tensor.local_log_prob)
         else:
             s_tensor = self._stochastic_tensors[name_or_names]
-            ret = s_tensor.log_prob(s_tensor.tensor)
-        return ret
-
-    def outputs_and_local_log_prob(self, name_or_names):
-        raise NotImplementedError
-        self._check_names_exist(name_or_names)
-        if isinstance(name_or_names, (tuple, list)):
-            ret = []
-            for name in name_or_names:
-                s_tensor = self._stochastic_tensors[name]
-                ret.append(s_tensor.log_prob(s_tensor.tensor))
-        else:
-            s_tensor = self._stochastic_tensors[name_or_names]
-            ret = s_tensor.log_prob(s_tensor.tensor)
+            ret = s_tensor.local_log_prob
         return ret
 
     def query(self, name_or_names, outputs=False, local_log_prob=False):
@@ -380,12 +397,11 @@ class BayesianNet(Context):
         :return: Tuple of Tensors or a list of tuples of Tensors.
         """
         self._check_names_exist(name_or_names)
-        if outputs and local_log_prob:
-            ret = self.outputs_and_local_log_prob(name_or_names)
-        elif outputs:
-            ret = self.outputs(name_or_names)
+        ret = []
+        if outputs:
+            ret.append(self.outputs(name_or_names))
         if local_log_prob:
-            ret = self.local_log_prob(name_or_names)
+            ret.append(self.local_log_prob(name_or_names))
         if len(ret) == 0:
             raise ValueError("No query options are selected.")
         elif isinstance(name_or_names, (tuple, list)):

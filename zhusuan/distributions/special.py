@@ -15,6 +15,7 @@ from zhusuan.distributions.utils import assert_same_float_and_int_dtype, \
 __all__ = [
     'Empirical',
     'Implicit',
+    'FlowDistribution'
 ]
 
 
@@ -144,7 +145,7 @@ class Implicit(Distribution):
             return prob
 
 
-class Reparametrized(Distribution):
+class FlowDistribution(Distribution):
     """
     The class of Implicit distribution.
     See :class:`~zhusuan.distributions.base.Implicit` for details.
@@ -168,7 +169,7 @@ class Reparametrized(Distribution):
         self.base = base
         self.forward = forward
         self.inverse = inverse
-        super(Reparametrized, self).__init__(
+        super(FlowDistribution, self).__init__(
             dtype=base.dtype,
             param_dtype=base.dtype,
             is_continuous=base.dtype.is_floating,
@@ -189,18 +190,15 @@ class Reparametrized(Distribution):
         return self.base.get_batch_shape()
 
     def _sample(self, n_samples):
-        sample = self.base.sample(n_samples)
-        transformed, log_det = self.forward(sample)
-        return tf.tile(implicit, [n_samples] + [1] * self.implicit.shape.ndims)
+        raise ValueError("Reparametrized distribution can only sample through `sample_and_log_prob`.")
 
     def _log_prob(self, given):
-        return self.base()
+        raise ValueError("Reparametrized distribution can only calculate log_prob through `sample_and_log_prob`.")
 
     def _prob(self, given):
-        given = tf.cast(given, self.param_dtype)
-        given, implicit = maybe_explicit_broadcast(given, self.implicit, 'given', 'implicit')
-        prob = tf.cast(tf.equal(given, implicit), tf.float32)
-        if self.is_continuous:
-            return (2 * prob - 1) * inf
-        else:
-            return prob
+        return tf.exp(self.log_prob(given))
+
+    def sample_and_log_prob(self, n_samples=None):
+        sample, log_prob = self.base.sample_and_log_prob(n_samples)
+        transformed, log_det = self.forward(sample, log_prob)
+        return transformed, log_det
