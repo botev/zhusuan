@@ -14,6 +14,7 @@ from tensorflow.python.client.session import \
 
 from zhusuan.model.utils import Context
 from zhusuan.utils import TensorArithmeticMixin
+from zhusuan.distributions import FlowDistribution
 
 
 __all__ = [
@@ -114,9 +115,19 @@ class StochasticTensor(TensorArithmeticMixin):
                         "StochasticTensor('{}') not compatible "
                         "with its observed value. Error message: {}".format(
                             self._name, e))
+            elif isinstance(self._distribution, FlowDistribution):
+                self._tensor, self._local_log_prob = self._distribution.\
+                    sample_and_log_prob(self._n_samples)
             else:
                 self._tensor = self.sample(self._n_samples)
         return self._tensor
+
+    @property
+    def local_log_prob(self):
+        tensor = self.tensor
+        if not hasattr(self, '_local_log_prob'):
+            self._local_log_prob = self.log_prob(tensor)
+        return self._local_log_prob
 
     def get_shape(self):
         return self.tensor.get_shape()
@@ -336,15 +347,12 @@ class BayesianNet(Context):
         :return: A Tensor or a list of Tensors.
         """
         self._check_names_exist(name_or_names)
+        self._check_names_exist(name_or_names)
         if isinstance(name_or_names, (tuple, list)):
-            ret = []
-            for name in name_or_names:
-                s_tensor = self._stochastic_tensors[name]
-                ret.append(s_tensor.log_prob(s_tensor.tensor))
+            return [self._stochastic_tensors[name].local_log_prob
+                    for name in name_or_names]
         else:
-            s_tensor = self._stochastic_tensors[name_or_names]
-            ret = s_tensor.log_prob(s_tensor.tensor)
-        return ret
+            return self._stochastic_tensors[name_or_names].local_log_prob
 
     def query(self, name_or_names, outputs=False, local_log_prob=False):
         """

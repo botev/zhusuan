@@ -15,6 +15,7 @@ from zhusuan.distributions.utils import assert_same_float_and_int_dtype, \
 __all__ = [
     'Empirical',
     'Implicit',
+    'FlowDistribution',
 ]
 
 
@@ -142,3 +143,78 @@ class Implicit(Distribution):
             return (2 * prob - 1) * inf
         else:
             return prob
+
+
+class FlowDistribution(Distribution):
+    """
+    The class of FlowDistribution distribution.
+    See :class:`~zhusuan.distributions.base.FlowDistribution` for details.
+    :param name: A string. The name of the `StochasticTensor`. Must be unique
+        in the `BayesianNet` context.
+    :param base: An instance of `Distribution` parametrizing the base distribution.
+    :param forward: A forward function which describes how we transform the samples
+        from the base distribution. The signature of the function should be:
+            transformed, log_det = forward(base_samples)
+    :param inverse: An inverse function which maps from the transformed samples to
+        to base samples. The signature of the function should be:
+            base_samples, log_det = inverse(transformed_samples)
+    :param group_ndims: A 0-D `int32` Tensor representing the number of
+        dimensions in `batch_shape` (counted from the end) that are grouped
+        into a single event, so that their probabilities are calculated
+        together. Default is 0, which means a single value is an event.
+        See :class:`~zhusuan.distributions.base.Distribution` for more detailed
+        explanation.
+    """
+
+    def __init__(self,
+                 base,
+                 forward,
+                 inverse=None,
+                 group_ndims=0,
+                 **kwargs):
+        self.base = base
+        self.forward = forward
+        self.inverse = inverse
+        super(FlowDistribution, self).__init__(
+            dtype=base.dtype,
+            param_dtype=base.dtype,
+            is_continuous=base.dtype.is_floating,
+            group_ndims=group_ndims,
+            is_reparameterized=False,
+            **kwargs)
+
+    def _value_shape(self):
+        return self.base.value_shape()
+
+    def _get_value_shape(self):
+        return self.base.get_value_shape()
+
+    def _batch_shape(self):
+        return self.base.batch_shape()
+
+    def _get_batch_shape(self):
+        return self.base.get_batch_shape()
+
+    def _sample(self, n_samples):
+        return self.sample_and_log_prob(n_samples)[0]
+
+    def _log_prob(self, given):
+        if self.inverse is None:
+            raise ValueError("Flow distribution can only calculate log_prob through `sample_and_log_prob` "
+                             "if `inverse=None`.")
+        else:
+            base_given, log_det = self.inverse(given)
+            log_prob = self.base.log_prob(base_given)
+            return log_prob - log_det
+
+    def _prob(self, given):
+        return tf.exp(self.log_prob(given))
+
+    def sample_and_log_prob(self, n_samples=None):
+        try:
+            base_sample, log_prob = self.base.sample_and_log_prob(n_samples)
+        except:
+            base_sample = self.base.sample(n_samples)
+            log_prob = self.base.log_prob(base_sample)
+        transformed, log_det = self.forward(base_sample, log_prob)
+        return transformed, log_det
