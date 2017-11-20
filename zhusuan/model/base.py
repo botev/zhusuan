@@ -115,11 +115,11 @@ class StochasticTensor(TensorArithmeticMixin):
                         "StochasticTensor('{}') not compatible "
                         "with its observed value. Error message: {}".format(
                             self._name, e))
-            elif isinstance(self._distribution, FlowDistribution):
-                self._tensor, self._local_log_prob = self._distribution.\
-                    sample_and_log_prob(self._n_samples)
             else:
-                self._tensor = self.sample(self._n_samples)
+                try:
+                    self._tensor = self._distribution.sample(self._n_samples)
+                except Exception:
+                    self._tensor, self._local_log_prob = self._distribution.sample_and_log_prob()
         return self._tensor
 
     @property
