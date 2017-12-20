@@ -926,6 +926,7 @@ class NormalFlow(StochasticTensor):
                  logstd=None,
                  std=None,
                  n_samples=None,
+                 inverse=None,
                  group_ndims=0,
                  is_reparameterized=True,
                  check_numerics=False,
@@ -939,5 +940,5 @@ class NormalFlow(StochasticTensor):
             check_numerics=check_numerics,
             **kwargs
         )
-        flow = distributions.FlowDistribution(norm, forward, group_ndims=group_ndims)
+        flow = distributions.FlowDistribution(norm, forward, inverse, group_ndims)
         super(NormalFlow, self).__init__(name, flow, n_samples)
